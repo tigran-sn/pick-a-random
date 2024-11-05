@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Web Component</title>
+        <style>
+            body {
+                margin: 1em auto;
+                max-width: 40em;
+                width: 88%;
+            }
+
+            pick-at-random [role="status"]:not(:empty) {
+                background-color: limegreen;
+                border: 1px solid #e5e5e5;
+                border-radius: 0.25em;
+                padding: 0.25rem 1rem;
+                margin-top: 1rem;
+            }
+        </style>
+    </head>
+
+    <body>
+        <h1>Pick at Random</h1>
+
+        <pick-at-random></pick-at-random>
+
+        <script>
+            customElements.define(
+                "pick-at-random",
+                class extends HTMLElement {
+                    /**
+                     * Inits the component
+                     */
+                    constructor() {
+                        // Inherits parent class properties
+                        super();
+
+                        // Create a uniue ID for the instance
+                        this.uuid = `pick-${crypto.randomUUID()}`;
+
+                        // Render initial HTML
+                        this.innerHTML = `
+                            <form>
+                                <label for="${this.uuid}">Add an item</label>
+                                <input id="${this.uuid}" />
+                                <button>Add item</button>
+                            </form>
+                            <ul></ul>
+                            <p>
+                                <button pick-item>Pick an item</button>
+                            </p>
+                            <div role="status" pick-result></div>
+                        `;
+
+                        // Get elements
+                        this.form = this.querySelector("form");
+                        this.list = this.querySelector("ul");
+                        this.field = this.form.querySelector("input");
+                        this.pickBtn = this.querySelector("[pick-item]");
+                        this.result = this.querySelector("[pick-result]");
+
+                        // Listen for events
+                        this.form.addEventListener("submit", this);
+                        this.pickBtn.addEventListener("click", this);
+                    }
+
+                    /**
+                     * Generic event handler that routes DOM events to their corresponding handler methods.
+                     * Automatically converts event types to camelCase method names (e.g., 'click' → 'onClick').
+                     *
+                     * @param {Event} event - The DOM Event object
+                     * @param {string} event.type - The type of the event (e.g., 'click', 'mousedown')
+                     * @returns {void}
+                     * @throws {TypeError} If event parameter is not an Event object
+                     * @throws {Error} If the corresponding event handler method is not defined
+                     *
+                     * @example
+                     * class MyComponent {
+                     *   handleEvent(event) { ... }
+                     *
+                     *   onClick(event) {
+                     *     console.log('Click handled!');
+                     *   }
+                     * }
+                     *
+                     * const component = new MyComponent();
+                     * element.addEventListener('click', component);
+                     */
+                    handleEvent(event) {
+                        // Type checking
+                        if (!(event instanceof Event)) {
+                            throw new TypeError("Parameter must be an Event object");
+                        }
+
+                        // Convert event type to handler method name
+                        const methodName = `on${event.type
+                            .charAt(0)
+                            .toUpperCase()}${event.type.slice(1)}`;
+
+                        // Check if handler exists
+                        if (typeof this[methodName] !== "function") {
+                            throw new Error(
+                                `No handler method ${methodName} defined for ${event.type} event`
+                            );
+                        }
+
+                        // Call the handler
+                        this[methodName](event);
+                    }
+
+                    /**
+                    * Handles form submission events by adding the input field value as a new list item
+                    * and displaying a status notification.
+                    * 
+                    * @param {SubmitEvent} event - The form submission event object
+                    * @throws {Error} If required DOM elements (field or list) are not initialized
+                    * @throws {Error} If input field is empty
+                    * 
+                    * @example
+                    * // HTML structure:
+                    * // <form id="myForm">
+                    * //   <input type="text" id="itemField">
+                    * //   <ul id="itemList"></ul>
+                    * // </form>
+                    * 
+                    * form.addEventListener('submit', this.onSubmit.bind(this));
+                    * 
+                    * @fires CustomEvent#itemAdded - When a new item is added to the list
+                    * @returns {void}
+                    */
+                    onSubmit(event) {
+                        // Prevent default form submission
+                        event.preventDefault();
+
+                        // Validate required elements
+                        if (!this.field || !this.list) {
+                            throw new Error('Required DOM elements not initialized');
+                        }
+
+                        // Get and validate input value
+                        const itemValue = this.field.value.trim();
+                        if (!itemValue) {
+                            throw new Error('Input field cannot be empty');
+                        }
+
+                        try {
+                            // Create and append list item
+                            const listItem = this.createListItem(itemValue);
+                            this.list.appendChild(listItem);
+
+                            // Dispatch custom event
+                            this.dispatchItemAddedEvent(itemValue);
+
+                            // Show status notification
+                            this.showStatus(itemValue);
+
+                            // Reset form
+                            this.resetForm();
+
+                        } catch (error) {
+                            console.error('Error in form submission:', error);
+                            this.handleError(error);
+                        }
+                    }
+
+                    /**
+                    * Creates a new list item element with the given text content.
+                    * 
+                    * @private
+                    * @param {string} content - The text content for the list item
+                    * @returns {HTMLLIElement} The created list item element
+                    */
+                    createListItem(content) {
+                        const li = document.createElement('li');
+                        li.textContent = this.sanitizeInput(content);
+                        li.classList.add('list-item');
+                        return li;
+                    }
+
+                    /**
+                    * Sanitizes user input to prevent XSS attacks.
+                    * 
+                    * @private
+                    * @param {string} input - The user input to sanitize
+                    * @returns {string} The sanitized input
+                    */
+                    sanitizeInput(input) {
+                        const div = document.createElement('div');
+                        div.textContent = input;
+                        return div.innerHTML;
+                    }
+
+                    /**
+                    * Dispatches a custom event when a new item is added.
+                    * 
+                    * @private
+                    * @param {string} item - The item that was added
+                    */
+                    dispatchItemAddedEvent(item) {
+                        const customEvent = new CustomEvent('itemAdded', {
+                            detail: {
+                                item,
+                                timestamp: new Date(),
+                                totalItems: this.list.children.length
+                            },
+                            bubbles: true
+                        });
+
+                        this.list.dispatchEvent(customEvent);
+                    }
+
+                    /**
+                    * Resets the form input field and focus.
+                    * 
+                    * @private
+                    */
+                    resetForm() {
+                        this.field.value = '';
+                        this.field.focus();
+                    }
+
+                    /**
+                     * Handles click events by randomly selecting an item from the list and displaying it.
+                     * 
+                     * @param {MouseEvent} event - The DOM mouse event object
+                     * @throws {Error} If required DOM elements (list or result container) are not initialized
+                     * @throws {Error} If the list is empty
+                     * 
+                     * @example
+                     * // HTML structure:
+                     * // <ul id="itemList">
+                     * //   <li>Item 1</li>
+                     * //   <li>Item 2</li>
+                     * // </ul>
+                     * // <div id="result"></div>
+                     * 
+                     * element.addEventListener('click', this.onClick.bind(this));
+                     * 
+                     * @fires CustomEvent#itemSelected - When an item is selected
+                     */
+                    onClick(event) {
+                        // Validate required elements
+                        if (!this.list || !this.result) {
+                            throw new Error('Required DOM elements not initialized');
+                        }
+
+                        // Get all list items
+                        const items = Array.from(this.list.querySelectorAll('li'))
+                            .map(item => item.textContent?.trim())
+                            .filter(Boolean); // Remove null/empty values
+
+                        // Validate list contents
+                        if (items.length === 0) {
+                            throw new Error('No items found in the list');
+                        }
+
+                        // Randomize the items
+                        const shuffledItems = this.shuffle([...items]); // Create copy to avoid modifying original
+                        const selectedItem = shuffledItems[0];
+
+                        // Update UI with selected item
+                        this.result.textContent = `You picked ${selectedItem}`;
+
+                        // Dispatch custom event
+                        const customEvent = new CustomEvent('itemSelected', {
+                            detail: {
+                                selectedItem,
+                                allItems: items,
+                                timestamp: new Date()
+                            },
+                            bubbles: true
+                        });
+
+                        this.result.dispatchEvent(customEvent);
+
+                        // Optional: Add animation or highlighting
+                        this.animateResult();
+                    }
+
+                    /**
+                     * Adds a simple fade-in animation to the result display.
+                     * @private
+                     */
+                    animateResult() {
+                        this.result.style.opacity = '0';
+                        this.result.style.transition = 'opacity 0.3s ease-in';
+
+                        requestAnimationFrame(() => {
+                            this.result.style.opacity = '1';
+                        });
+                    }
+
+                    /**
+                     * Displays a temporary status notification for an added item.
+                     * Creates an accessible notification that fades in, displays for 4 seconds, then fades out.
+                     *
+                     * @param {string} name - The name of the item that was added
+                     * @throws {Error} If form element is not initialized
+                     * @throws {TypeError} If name parameter is not a string
+                     *
+                     * @example
+                     * // Shows a notification saying '"Item Name" has been added'
+                     * showStatus('Item Name');
+                     *
+                     * @returns {void}
+                     */
+                    showStatus(name) {
+                        // Input validation
+                        if (typeof name !== "string") {
+                            throw new TypeError("Name parameter must be a string");
+                        }
+
+                        if (!this.form) {
+                            throw new Error("Form element not initialized");
+                        }
+
+                        // Create notification element with ARIA attributes
+                        const notification = document.createElement("div");
+                        notification.setAttribute("role", "status");
+                        notification.setAttribute("aria-live", "polite");
+                        notification.classList.add("status-notification");
+
+                        // Define notification styles using CSS classes
+                        const styles =
+                            `
+                        .status-notification {
+                            background-color: #4caf50;
+                            color: white;
+                            padding: 15px;
+                            border-radius: 5px;
+                            position: fixed;
+                            top: 20px;
+                            right: 20px;
+                            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+                            font-family: Arial, sans-serif;
+                            font-size: 14px;
+                            transition: opacity 0.3s;
+                            opacity: 0;
+                            z-index: 1000;
+                        }
+                `;
+
+                        // Add styles to document if they don't exist
+                        if (!document.querySelector("#status-notification-styles")) {
+                            const styleSheet = document.createElement("style");
+                            styleSheet.id = "status-notification-styles";
+                            styleSheet.textContent = styles;
+                            document.head.appendChild(styleSheet);
+                        }
+
+                        // Append notification to form
+                        this.form.appendChild(notification);
+
+                        // Constants for timing
+                        const FADE_IN_DELAY = 1; // ms
+                        const DISPLAY_DURATION = 4000; // ms
+                        const FADE_OUT_DURATION = 300; // ms
+
+                        // Show notification content with fade in
+                        setTimeout(() => {
+                            notification.innerHTML = `
+                <p>
+                    <strong>${this.escapeHtml(name)}</strong> has been added
+                </p>
+            `;
+                            notification.style.opacity = "1";
+                        }, FADE_IN_DELAY);
+
+                        // Handle notification removal
+                        setTimeout(() => {
+                            // Start fade out
+                            notification.style.opacity = "0";
+
+                            // Remove from DOM after fade
+                            setTimeout(() => {
+                                notification.remove();
+                            }, FADE_OUT_DURATION);
+                        }, DISPLAY_DURATION);
+                    }
+
+                    /**
+                     * Escapes HTML special characters to prevent XSS attacks.
+                     *
+                     * @private
+                     * @param {string} unsafe - The unsafe string that might contain HTML
+                     * @returns {string} The escaped safe string
+                     */
+                    escapeHtml(unsafe) {
+                        return unsafe
+                            .replace(/&/g, "&amp;")
+                            .replace(/</g, "&lt;")
+                            .replace(/>/g, "&gt;")
+                            .replace(/"/g, "&quot;")
+                            .replace(/'/g, "&#039;");
+                    }
+
+                    /**
+                    * Shuffles an array using the Fisher-Yates (Knuth) shuffle algorithm.
+                    * Modifies the original array and returns the shuffled array.
+                    *
+                    * @template T The type of elements in the array
+                    * @param {T[]} array - The array to shuffle
+                    * @returns {T[]} The shuffled array (same reference as input array)
+                    * @throws {TypeError} If array parameter is not an array
+                    * 
+                    * @example
+                    * // Shuffle an array of numbers
+                    * const numbers = [1, 2, 3, 4, 5];
+                    * shuffle(numbers); // => [3, 1, 5, 2, 4]
+                    * 
+                    * // Shuffle an array of strings
+                    * const fruits = ['apple', 'banana', 'orange'];
+                    * shuffle(fruits); // => ['orange', 'apple', 'banana']
+                    * 
+                    * @description
+                    * Uses the Fisher-Yates (Knuth) shuffle algorithm which:
+                    * 1. Iterates through the array from end to start
+                    * 2. For each position, picks a random position from start to current
+                    * 3. Swaps the elements at current and random positions
+                    * Time complexity: O(n) where n is array length
+                    * Space complexity: O(1) as it shuffles in place
+                    */
+                    shuffle(array) {
+                        // Type checking
+                        if (!Array.isArray(array)) {
+                            throw new TypeError('Parameter must be an array');
+                        }
+
+                        // Handle edge cases
+                        if (array.length <= 1) return array;
+
+                        // Perform Fisher-Yates shuffle
+                        for (let i = array.length - 1; i > 0; i--) {
+                            // Generate random index from 0 to i
+                            const j = Math.floor(Math.random() * (i + 1));
+
+                            // Swap elements using destructuring
+                            [array[i], array[j]] = [array[j], array[i]];
+                        }
+
+                        return array;
+                    }
+                }
+            );
+        </script>
+    </body>
+
+</html>
